@@ -3,7 +3,7 @@
 
 import pyodbc
 import plotly
-from datetime import date
+import datetime
 import pandas as pd
 import plotly.offline as pyo
 import plotly.graph_objs as go
@@ -42,113 +42,94 @@ BK_tmp.columns = ['Id', 'Booking ID#', 'ArrivalDate', 'Accound Id', 'Account', '
 
 ##################################################################################################
 
-BK_cv_tmp = BK_tmp[['Booking ID#', 'ArrivalDate', 'Account', 'Account: Region', 'Account: Industry', 'Agency', 'Booking Type', 'Blended Roomnights', 'Blended Total Revenue', 'Account Type']]
+BK_cv_tmp = BK_tmp[['Booking ID#', 'ArrivalDate', 'Accound Id', 'Account', 'Account: Region', 'Account: Industry', 'Agency Id', 'Agency', 'Booking Type', 'Blended Roomnights', 'Blended Total Revenue', 'Account Type']]
 
                  
 # Noted that the current date is set to 2021-01-01
 NOW = datetime.datetime(2021,1,1)
 BK_cv_tmp['ArrivalDate'] = pd.to_datetime(BK_cv_tmp['ArrivalDate'])
-BK_cv_tmp = BK_cv_tmp[BK_tmp['ArrivalDate'] < NOW]
+BK_cv_tmp = BK_cv_tmp[BK_cv_tmp['ArrivalDate'] < NOW]
 
-BK_cv_tmp['Arrival Year'] = pd.DatetimeIndex(BK_cv_tmp['ArrivalDate']).year
-BK_cv_tmp['Arrival Month'] = pd.DatetimeIndex(BK_cv_tmp['ArrivalDate']).month
-BK_cv_tmp['Arrival Day'] = pd.DatetimeIndex(BK_cv_tmp['ArrivalDate']).day
+BK_cv_tmp['year'] = pd.DatetimeIndex(BK_cv_tmp['ArrivalDate']).year
+BK_cv_tmp['month'] = pd.DatetimeIndex(BK_cv_tmp['ArrivalDate']).month
+BK_cv_tmp['day'] = pd.DatetimeIndex(BK_cv_tmp['ArrivalDate']).day
 
 # Noted that due to COVID-19, for arrival year before 2020, the year have been add for one year.
 # (Orignal arrival: 2019, Now: 2020)
-BK_cv_tmp['Arrival Year'] = BK_cv_tmp['Arrival Year'].apply(lambda x: x + 1 if x < 2020 else x)
-BK_cv_tmp['Arrival_new'] = pd.to_datetime(BK_cv_tmp[['Arrival Year', 'Arrival Month', 'Arrival Day']])
+BK_cv_tmp['year'] = BK_cv_tmp['year'].apply(lambda x: x + 1 if x < 2020 else x)
+BK_cv_tmp['Arrival_new'] = pd.to_datetime(BK_cv_tmp[['year', 'month', 'day']], errors='coerce')
 
 # Take out Account 'ROTARY CLUB OF MACAU'
 acct_name = ['ROTARY CLUB OF MACAU']
 BK_cv_tmp = BK_cv_tmp[BK_cv_tmp['Account'] != 'ROTARY CLUB OF MACAU']
 
 
-RFGM = BK_cv_tmp.groupby(['Accound Id', 'Account']).agg({'Arrival_new': lambda x: (NOW - x.max()).days,
-                                                         'Accound Id': lambda x: len(x), 
-                                                         'Blended Roomnights': lambda x: x.sum(),
-                                                         'Blended Total Revenue': lambda x: x.sum()})
-
-RFGM.rename(columns={'Arrival_new': 'Recency', 
-                     'Accound Id': 'Frequency',
-                     'Blended Roomnights': 'Guestroom_value',
-                     'Blended Total Revenue': 'Monetary_value'}, inplace=True)
-
-# Recency score
-r_labels = range(5, 0, -1)
-r_quartiles = pd.cut(RFGM['Recency'], 5, labels=r_labels)
-RFGM = RFGM.assign(R = r_quartiles.values)
-
-# Frequency score
-f_labels = range(1, 6)
-f_quartiles = pd.cut(RFGM['Frequency'], 5, labels=f_labels)
-RFGM = RFGM.assign(F = f_quartiles.values)
-
-# Guestroom value score
-g_labels = range(1, 6)
-g_quartiles = pd.cut(RFGM['Guestroom_value'], 5, labels=g_labels)
-RFGM = RFGM.assign(G = g_quartiles.values)
-
-# Monetary value score
-m_labels = range(1, 6)
-m_quartiles = pd.cut(RFGM['Monetary_value'], 5, labels=m_labels)
-RFGM = RFGM.assign(M = m_quartiles.values)
-
-
 def join_rfgm(x):
     return str(x['R']) + '-' + str(x['F']) + '-' + str(x['G']) + '-' + str(x['M'])
 
-RFGM['RFGM_Segment'] = RFGM.apply(join_rfgm, axis=1)
-RFGM['RFGM_Score'] = RFGM[['R', 'F', 'G', 'M']].sum(axis=1)
+# create RFGM table
+def rfgm_df(BK_tmp):
+    RFGM_df = BK_tmp.groupby(['Accound Id', 'Account']).agg({'Arrival_new': lambda x: (NOW - x.max()).days,
+                                                             'Accound Id': lambda x: len(x), 
+                                                             'Blended Roomnights': lambda x: x.sum(),
+                                                             'Blended Total Revenue': lambda x: x.sum()})
+    RFGM_df.rename(columns={'Arrival_new': 'Recency', 
+                            'Accound Id': 'Frequency',
+                            'Blended Roomnights': 'Guestroom_value',
+                            'Blended Total Revenue': 'Monetary_value'}, inplace=True)
+    return RFGM_df
+
+# calculate RFGM quatiles scores
+def rfgm_score_quat(RFGM_tmp, rfgm_dict):
+    for key, values in rfgm_dict.items():
+        tmp_labels = values[0]
+        tmp_quartiles = pd.cut(RFGM_tmp[key], 5, labels=tmp_labels)
+        RFGM_tmp[values[1]] = tmp_quartiles.values
+    RFGM_tmp['RFGM_Segment'] = RFGM_tmp.apply(join_rfgm, axis=1)
+    
+    return RFGM_tmp
+
+rfgm_dict = {'Recency': [range(5, 0, -1), 'R'], 'Frequency': [range(1, 6), 'F'], 
+             'Guestroom_value': [range(1, 6), 'G'], 'Monetary_value': [range(1, 6), 'M']}
+
+RFGM_df = rfgm_df(BK_cv_tmp)
+RFGM_score = rfgm_score_quat(RFGM_df, rfgm_dict)
 
 # Take out the outlier data for late process (combine it later)
-RFGM = pd.DataFrame(RFGM).reset_index()
+RFGM_df = pd.DataFrame(RFGM_df).reset_index()
 acct_name = ['JEUNESSE GLOBAL HOLDINGS, LLC TAIWAN BR']
-outliers = RFGM.loc[RFGM['Account'].isin(acct_name)]
-outliers
+outliers = RFGM_df.loc[RFGM_df['Account'].isin(acct_name)]
+outliers_row = BK_cv_tmp[BK_cv_tmp['Account'].isin(acct_name)].index
+BK_cv_wo_outliner_tmp = BK_cv_tmp.drop(outliers_row)
 
-# Take out outliers
-acct_name = ['JEUNESSE GLOBAL HOLDINGS, LLC TAIWAN BR']
-outliers_list = BK_cv_tmp[BK_cv_tmp['Account'].isin(acct_name)].index
-data1 = BK_cv_tmp.drop(outliers_list)
+RFGM_df_no_outlier = rfgm_df(BK_cv_wo_outliner_tmp)
 
-RFGM1 = data1.groupby(['Account Id', 'Account']).agg({'Arrival_new': lambda x: (NOW - x.max()).days,
-                                                      'Account Id': lambda x: len(x), 
-                                                      'Blended Roomnights': lambda x: x.sum(),
-                                                      'Blended Total Revenue': lambda x: x.sum()})
+RFGM_score_no_outlier = rfgm_score_quat(RFGM_df_no_outlier, rfgm_dict)
 
-RFGM1.rename(columns={'Arrival_new': 'Recency', 
-                      'Account Id': 'Frequency',
-                      'Blended Roomnights': 'Guestroom_value',
-                      'Blended Total Revenue': 'Monetary_value'}, inplace=True)
+RFGM_score_no_outlier['RFGM_Score'] = RFGM_score_no_outlier[['R', 'F', 'G', 'M']].sum(axis=1)
 
-# Recency score
-r_labels = range(5, 0, -1)
-r_quartiles = pd.cut(RFGM1['Recency'], 5, labels=r_labels)
-RFGM1 = RFGM1.assign(R = r_quartiles.values)
+print(RFGM_score_no_outlier)
+###################################################################################################
 
-# Frequency score
-f_labels = range(1, 6)
-f_quartiles = pd.cut(RFGM1['Frequency'], 5, labels=f_labels)
-RFGM1 = RFGM1.assign(F = f_quartiles.values)
+# Plot 1
+fig1 = make_subplots(rows=3, cols=1, subplot_titles=('Tentative Bookings', 'Prospect Bookings', 'Inquiries'), 
+                    column_widths=[0.05], row_heights=[0.3, 0.3, 0.3], vertical_spacing=0.1, horizontal_spacing=0.0, 
+                    specs=[[{"type": "table"}], [{"type": "table"}], [{"type": "table"}]])
 
-# Guestroom value score
-g_labels = range(1, 6)
-g_quartiles = pd.cut(RFGM1['Guestroom_value'], 5, labels=g_labels)
-RFGM1 = RFGM1.assign(G = g_quartiles.values)
+table1_obj = go.Table(header = dict(values=bk_display_col),
+                      cells = dict(values=[sm_current_business_t[k].tolist() for k in sm_current_business_t.columns[0:]]))
 
-# Monetary value score
-m_labels = range(1, 6)
-m_quartiles = pd.cut(RFGM1['Monetary_value'], 5, labels=m_labels)
-RFGM1 = RFGM1.assign(M = m_quartiles.values)
+table2_obj = go.Table(header = dict(values=bk_display_col),
+                      cells = dict(values=[sm_current_business_p[k].tolist() for k in sm_current_business_p.columns[0:]]))
 
+table3_obj = go.Table(header = dict(values=inq_display_col),
+                      cells = dict(values=[sm_inquiry[k].tolist() for k in sm_inquiry.columns[0:]]))
 
-RFGM1['RFGM_Segment'] = RFGM1.apply(join_rfgm, axis=1)
-RFGM1['RFGM_Score'] = RFGM1[['R', 'F', 'G', 'M']].sum(axis=1)
+fig1.add_trace(table1_obj, row=1, col=1)
+fig1.add_trace(table2_obj, row=2, col=1)
+fig1.add_trace(table3_obj, row=3, col=1)
 
-##################################################################################################
-
-
+fig1.update_layout(title='Current Business', autosize=False, width=1800, height=800)
 
 
 
@@ -160,6 +141,6 @@ def figures_to_html(figs, filename):
         dashboard.write(inner_html)
     dashboard.write("</body></html>" + "\n")
 
-figures_to_html([fig1, fig2, fig3, fig4], filename='performance_dashboard.html')
+figures_to_html([fig1], filename='performance_dashboard.html')
 
 ##################################################################################################
