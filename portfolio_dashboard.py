@@ -85,22 +85,25 @@ arrival_date_df.sort_values(by=['Days before Arrive'], inplace=True)
 # All booking data
 BK_tmp = pd.read_sql("SELECT BK.Id, BK.Booking_ID_Number__c, FORMAT(BK.nihrm__ArrivalDate__c, 'yyyy-MM-dd') AS ArrivalDate, ac.Id, ac.Name AS ACName, ag.Id, ag.Name AS AGName, BK.End_User_Region__c, BK.End_User_SIC__c, \
                              BK.nihrm__BookingTypeName__c, ac.nihrm__RegionName__c, ac.Industry, ag.nihrm__RegionName__c, BK.nihrm__CurrentBlendedRoomnightsTotal__c, BK.nihrm__CurrentBlendedRevenueTotal__c, \
-                             FORMAT(BK.nihrm__BookedDate__c, 'yyyy-MM-dd') AS BookedDate, BK.nihrm__Property__c, ac.Type \
+                             FORMAT(BK.nihrm__BookedDate__c, 'yyyy-MM-dd') AS BookedDate, BK.nihrm__Property__c, ac.Type, ag.Type \
                       FROM dbo.nihrm__Booking__c AS BK \
                              LEFT JOIN dbo.Account AS ac \
                                  ON BK.nihrm__Account__c = ac.Id \
                              LEFT JOIN dbo.Account AS ag \
                                  ON BK.nihrm__Agency__c = ag.Id \
-                      WHERE (BK.nihrm__BookingTypeName__c NOT IN ('ALT Alternative', 'CN Concert', 'IN Internal')) AND \
+                      WHERE (BK.nihrm__BookingTypeName__c NOT IN ('ALT Alternative', 'CN Concert', 'IN Internal', 'CS Catering - Social')) AND \
                              (BK.nihrm__Property__c NOT IN ('Sands Macao Hotel')) AND (BK.nihrm__BookingStatus__c IN ('Definite'))", conn)
 
 BK_tmp.columns = ['Id', 'Booking ID#', 'ArrivalDate', 'Accound Id', 'Account', 'Agency Id', 'Agency', 'End User Region', 'End User SIC', 'Booking Type', 'Account: Region', 'Account: Industry', 'Agency: Region',
-                  'Blended Roomnights', 'Blended Total Revenue', 'BookedDate', 'Property', 'Account Type']
+                  'Blended Roomnights', 'Blended Total Revenue', 'BookedDate', 'Property', 'Account Type', 'Agency Type']
 
 ##################################################################################################
 
 # Filter by industry or region
 
+# TODO: filter by MICE and Tradeshow
+
+# 
 
 ##################################################################################################
 
@@ -190,7 +193,7 @@ arrival_rn_revenue = arrival_rn_revenue.sort_values('to_sort')
 
 
 fig1 = make_subplots(rows=3, cols=1, subplot_titles=('3 years comparsion on RNs by Created Year and Month', '3 years comparsion on RNs by Arrival Year and Month', '3 years comparsion on Total Revenue by Arrival Year and Month'),
-                     column_widths=[0.5], row_heights=[0.8, 0.8, 0.8], shared_xaxes=True)
+                     column_widths=[1.0], row_heights=[1.0, 1.0, 1.0], shared_xaxes=True)
 
 # previous and next 3 years
 years = sorted([now.year - i for i in range(-3, 3)])
@@ -218,7 +221,7 @@ for i, year in enumerate(years):
     fig1.add_trace(line2, row=2, col=1)
     fig1.add_trace(line3, row=3, col=1)
 
-fig1.update_layout(title='3 years Demand History Comparsion', xaxis_title='Month', xaxis_showticklabels=True)
+fig1.update_layout(title='3 years Demand History Comparsion', xaxis_title='Month', xaxis_showticklabels=True, height=1000)
 
 
 # Plot 2 & 3
@@ -231,7 +234,7 @@ top_account.rename(columns={'Accound Id': 'No. of Booking', 'Blended Roomnights'
 top_account = pd.DataFrame(top_account).reset_index()
 top_account.rename(columns={'Account: Industry': 'Industry'}, inplace=True)
 
-top_agency = BK_tmp[BK_tmp['Account Type'] == 'Agency']
+top_agency = BK_tmp[BK_tmp['Agency Type'] == 'Agency']
 top_agency = top_agency.groupby(['Agency Id', 'Agency']).agg({'Agency Id': lambda x: len(x), 
                                                               'Blended Roomnights': lambda x: x.sum(),
                                                               'Blended Total Revenue': lambda x: x.sum()})
@@ -239,13 +242,12 @@ top_agency.rename(columns={'Agency Id': 'No. of Booking', 'Blended Roomnights': 
 top_agency = pd.DataFrame(top_agency).reset_index()
 
 
-
+# function to create top 10 table
 def top_10_table_info(tmp_fig, tmp_data, tmp_cols, sort_index):
-    
+    # create sorted table for top 10 account/agency
     for i, col in tmp_cols.items():
         tmp_top_data = tmp_data[col]
         tmp_top_data = tmp_top_data.sort_values(by=tmp_top_data.columns[sort_index], ascending=False).head(10)
-        
         
         tmp_table = go.Table(header = dict(values=col),
                               cells = dict(values=[tmp_top_data[k].tolist() for k in tmp_top_data.columns[0:]]))
@@ -274,6 +276,15 @@ top_10_table_info(fig3, top_agency, top_10_ag_cols, 1)
 fig3.update_layout(title='Top 10 Agency information', autosize=False, width=1800, height=800)
 
 
+# Plot 4
+
+# TODO: Horizontal Percentage Bar Charts 
+# https://plotly.com/python/horizontal-bar-charts/
+
+# TODO: Sunburst Charts
+# https://plotly.com/python/sunburst-charts/
+
+
 
 # Plot 5 & 6
 
@@ -289,13 +300,14 @@ rfgm_display_col = ['Account', 'Account: Region', 'Account: Industry', 'Recency'
 RFGM_score_no_outlier = RFGM_score_no_outlier[rfgm_display_col]
 
 
-
+# function to create rfm analysis table
 def plotly_table_figure(fig_tmp, dataframe, columns):
     global plot_number
     table_tmp = go.Table(header = dict(values=columns),
                          cells = dict(values=[dataframe[k].tolist() for k in dataframe.columns[0:]]))
     fig_tmp.add_trace(table_tmp, row=plot_number, col=1)
     plot_number += 1
+
 
 # Reset plot_number
 plot_number = 1
