@@ -11,6 +11,7 @@ from plotly.subplots import make_subplots
 import plotly.figure_factory as ff
 import numpy as np
 from dateutil.relativedelta import relativedelta
+import plotly.express as px
 
 ##################################################################################################
 
@@ -99,14 +100,6 @@ BK_tmp.columns = ['Id', 'Booking ID#', 'ArrivalDate', 'Accound Id', 'Account', '
 
 ##################################################################################################
 
-# Filter by industry or region
-
-# TODO: filter by MICE and Tradeshow
-
-# 
-
-##################################################################################################
-
 # RFM data preprocess
 
 BK_cv_tmp = BK_tmp[['Booking ID#', 'ArrivalDate', 'Accound Id', 'Account', 'Account: Region', 'Account: Industry', 'Agency Id', 'Agency', 'Booking Type', 'Blended Roomnights', 'Blended Total Revenue', 'Account Type']]
@@ -178,15 +171,33 @@ RFGM_score_no_outlier = pd.merge(RFGM_score_no_outlier, region_sic, on='Accound 
 
 ###################################################################################################
 
+# Filtering (temp)
+
+# Filter by industry or region
+# TODO: filter by MICE and Tradeshow
+
+# plot 1
+booked_date_df_tmp = booked_date_df[booked_date_df['End User Region'] == 'China']
+arrival_date_df_tmp = arrival_date_df[arrival_date_df['End User Region'] == 'China']
+
+# plot 2 & 3
+account_BK_tmp = BK_tmp[BK_tmp['Account: Region'] == 'China']
+agency_BK_tmp = BK_tmp[BK_tmp['Agency: Region'] == 'China']
+
+# plot 4 & 5
+booking_BK_tmp = BK_tmp[BK_tmp['End User Region'] == 'China']
+
+##################################################################################################
+
 # Plot 1
 
 months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-history_count = booked_date_df.groupby(['Booked Month', 'Booked Year']).size().reset_index(name='NumberOfBK')
+history_count = booked_date_df_tmp.groupby(['Booked Month', 'Booked Year']).size().reset_index(name='NumberOfBK')
 history_count['to_sort']=history_count['Booked Month'].apply(lambda x: months.index(x))
 history_count = history_count.sort_values('to_sort')
 
-arrival_rn_revenue = arrival_date_df.groupby(['Arrival Month', 'Arrival Year']).sum().reset_index()
+arrival_rn_revenue = arrival_date_df_tmp.groupby(['Arrival Month', 'Arrival Year']).sum().reset_index()
 arrival_rn_revenue['to_sort']=arrival_rn_revenue['Arrival Month'].apply(lambda x: months.index(x))
 arrival_rn_revenue = arrival_rn_revenue.sort_values('to_sort')
 
@@ -226,7 +237,7 @@ fig1.update_layout(title='3 years Demand History Comparsion', xaxis_title='Month
 
 # Plot 2 & 3
 
-top_account = BK_tmp[BK_tmp['Account Type'] == 'Account']
+top_account = account_BK_tmp[account_BK_tmp['Account Type'] == 'Account']
 top_account = top_account.groupby(['Accound Id', 'Account', 'Account: Industry']).agg({'Accound Id': lambda x: len(x), 
                                                                                        'Blended Roomnights': lambda x: x.sum(),
                                                                                        'Blended Total Revenue': lambda x: x.sum()})
@@ -234,7 +245,7 @@ top_account.rename(columns={'Accound Id': 'No. of Booking', 'Blended Roomnights'
 top_account = pd.DataFrame(top_account).reset_index()
 top_account.rename(columns={'Account: Industry': 'Industry'}, inplace=True)
 
-top_agency = BK_tmp[BK_tmp['Agency Type'] == 'Agency']
+top_agency = agency_BK_tmp[agency_BK_tmp['Agency Type'] == 'Agency']
 top_agency = top_agency.groupby(['Agency Id', 'Agency']).agg({'Agency Id': lambda x: len(x), 
                                                               'Blended Roomnights': lambda x: x.sum(),
                                                               'Blended Total Revenue': lambda x: x.sum()})
@@ -254,7 +265,8 @@ def top_10_table_info(tmp_fig, tmp_data, tmp_cols, sort_index):
     
         tmp_fig.add_trace(tmp_table, row=1, col=i)
 
-
+    
+    
 
 fig2 = make_subplots(rows=1, cols=3, subplot_titles=('Top 10 Most Bookings', 'Top 10 Most RNs', 'Top 10 Most Total Revenue'), 
                     column_widths=[0.05, 0.05, 0.05], row_heights=[0.3], vertical_spacing=0.0, horizontal_spacing=0.05, 
@@ -281,18 +293,75 @@ fig3.update_layout(title='Top 10 Agency information', autosize=False, width=1800
 # TODO: Horizontal Percentage Bar Charts 
 # https://plotly.com/python/horizontal-bar-charts/
 
-# TODO: Sunburst Charts
-# https://plotly.com/python/sunburst-charts/
+top_agency_industry = agency_BK_tmp[agency_BK_tmp['Agency Type'] == 'Agency']
+top_agency_list = top_agency.sort_values(by=top_agency.columns[2], ascending=False).head(5)['Agency Id'].to_list()
+top_agency_industry = top_agency_industry[top_agency_industry['Agency Id'].isin(top_agency_list)][['Agency Id', 'Agency', 'End User SIC']]
+top_agency_industry = top_agency_industry.groupby(['Agency Id', 'Agency', 'End User SIC']).size().to_frame('size')
+top_agency_industry = pd.DataFrame(top_agency_industry).reset_index()
+
+
+colors = ['rgba(38, 24, 74, 0.8)', 'rgba(71, 58, 131, 0.8)',
+          'rgba(122, 120, 168, 0.8)', 'rgba(164, 163, 204, 0.85)',
+          'rgba(190, 192, 213, 1)']
+
+cols = plotly.colors.DEFAULT_PLOTLY_COLORS
 
 
 
-# Plot 5 & 6
+fig4 = go.Figure()
 
-fig5 = make_subplots(rows=3, cols=1, subplot_titles=('Loyal Customers', 'Big Spenders on Guestroom', 'Big Spenders on Total Revenue'), 
+
+# Top 10 account
+for acc in top_agency_list:
+    tmp_top = (top_agency_industry[top_agency_industry['Agency Id'] == acc].sort_values('size', ascending=False).head(5))
+    tmp_top['percent'] = (tmp_top['size'] / tmp_top['size'].sum()).astype(float).map("{:.1%}".format)
+    
+    for index, (p, a, i) in enumerate(zip(tmp_top['percent'], tmp_top['Agency'], tmp_top['End User SIC'])):
+        fig4.add_trace(go.Bar(x=[p], y=[a], orientation='h', name=i,
+                              hovertemplate="Industry=%s<br>percent=%%{x}<br><extra></extra>" % i,
+                              marker=dict(color=cols[index], line=dict(color='rgb(248, 248, 249)', width=1))
+                              ))
+
+fig4.update_layout(xaxis=dict(showgrid=False, showline=False, showticklabels=False, zeroline=False, domain=[0.15, 1]),
+                   yaxis=dict(showgrid=False,showline=False,showticklabels=False,zeroline=False,),
+                   barmode='stack',
+                   paper_bgcolor='rgb(248, 248, 255)',
+                   plot_bgcolor='rgb(248, 248, 255)',
+                   margin=dict(l=120, r=10, t=140, b=80),
+                   showlegend=False)
+
+annotations = []
+
+
+
+fig4.update_layout(annotations=annotations)
+
+ 
+
+
+# Plot 5
+
+created_vs_arrival = booking_BK_tmp[['BookedDate', 'ArrivalDate']]
+created_vs_arrival['ArrivalDate'] = pd.to_datetime(created_vs_arrival['ArrivalDate'])
+created_vs_arrival['BookedDate'] = pd.to_datetime(created_vs_arrival['BookedDate'])
+created_vs_arrival['Created Month'] = created_vs_arrival['BookedDate'].dt.month_name().str[:3]
+created_vs_arrival['Arrival Month'] = created_vs_arrival['ArrivalDate'].dt.month_name().str[:3]
+created_vs_arrival = created_vs_arrival.groupby(['Created Month', 'Arrival Month']).size().to_frame('size')
+created_vs_arrival = pd.DataFrame(created_vs_arrival).reset_index()
+
+fig5 = px.sunburst(created_vs_arrival, path=['Created Month', 'Arrival Month'], values='size')
+
+fig5.update_layout(title='Relationship between Booking Created Month and Arrival Month', autosize=False, width=1800, height=800)
+
+
+
+# Plot 6 & 7
+
+fig6 = make_subplots(rows=3, cols=1, subplot_titles=('Loyal Customers', 'Big Spenders on Guestroom', 'Big Spenders on Total Revenue'), 
                     column_widths=[0.05], row_heights=[0.3, 0.3, 0.3], vertical_spacing=0.1, horizontal_spacing=0.0, 
                     specs=[[{"type": "table"}], [{"type": "table"}], [{"type": "table"}]])
 
-fig6 = make_subplots(rows=3, cols=1, subplot_titles=('Promising Customers', 'New Potential Customers', 'Gone Big Spenders'), 
+fig7 = make_subplots(rows=3, cols=1, subplot_titles=('Promising Customers', 'New Potential Customers', 'Gone Big Spenders'), 
                     column_widths=[0.05], row_heights=[0.3, 0.3, 0.3], vertical_spacing=0.1, horizontal_spacing=0.0, 
                     specs=[[{"type": "table"}], [{"type": "table"}], [{"type": "table"}]])
 
@@ -312,28 +381,28 @@ def plotly_table_figure(fig_tmp, dataframe, columns):
 # Reset plot_number
 plot_number = 1
 loyal_customer = RFGM_score_no_outlier[RFGM_score_no_outlier['F'] >= 3].sort_values('Frequency', ascending=False)
-plotly_table_figure(fig5, loyal_customer, rfgm_display_col)
+plotly_table_figure(fig6, loyal_customer, rfgm_display_col)
 
 big_spender_RN = RFGM_score_no_outlier[RFGM_score_no_outlier['G'] >= 3].sort_values('Guestroom_value', ascending=False)
-plotly_table_figure(fig5, big_spender_RN, rfgm_display_col)
+plotly_table_figure(fig6, big_spender_RN, rfgm_display_col)
 
 big_spender_Rev = RFGM_score_no_outlier[(RFGM_score_no_outlier['M'] >= 3) & (RFGM_score_no_outlier['R'] <= 3)].sort_values('Monetary_value', ascending=False)
-plotly_table_figure(fig5, big_spender_Rev, rfgm_display_col)
+plotly_table_figure(fig6, big_spender_Rev, rfgm_display_col)
 
 # Reset plot_number
 plot_number = 1
 promising_customer = RFGM_score_no_outlier[(RFGM_score_no_outlier['F'] == 2) & (RFGM_score_no_outlier['M'] <= 3) & (RFGM_score_no_outlier['R'] <= 3)].sort_values('Frequency', ascending=False)
-plotly_table_figure(fig6, promising_customer, rfgm_display_col)
+plotly_table_figure(fig7, promising_customer, rfgm_display_col)
 
 new_potential = RFGM_score_no_outlier[(RFGM_score_no_outlier['R'] == 5) & (RFGM_score_no_outlier['Frequency'] <= 2)].sort_values('Monetary_value', ascending=False)
-plotly_table_figure(fig6, new_potential, rfgm_display_col)
+plotly_table_figure(fig7, new_potential, rfgm_display_col)
 
 gone_big_spender = RFGM_score_no_outlier[(RFGM_score_no_outlier['R'] >= 2) & (RFGM_score_no_outlier['M'] >= 2)].sort_values('Monetary_value', ascending=False)
-plotly_table_figure(fig6, gone_big_spender, rfgm_display_col)
+plotly_table_figure(fig7, gone_big_spender, rfgm_display_col)
 
-fig5.update_layout(title='Customer RFGM scores', autosize=False, width=1800, height=800)
+fig6.update_layout(title='Customer RFGM scores', autosize=False, width=1800, height=800)
 
-fig6.update_layout(autosize=False, width=1800, height=800)
+fig7.update_layout(autosize=False, width=1800, height=800)
 
 def figures_to_html(figs, filename):
     dashboard = open(filename, 'w')
@@ -343,6 +412,7 @@ def figures_to_html(figs, filename):
         dashboard.write(inner_html)
     dashboard.write("</body></html>" + "\n")
 
-figures_to_html([fig1, fig2, fig3, fig5, fig6], filename='portfolio_dashboard.html')
+figures_to_html([fig1, fig2, fig3, fig4, fig5, fig6, fig7], filename='portfolio_dashboard.html')
 
+figures_to_html([fig4], filename='testing_dashboard.html')
 ##################################################################################################
