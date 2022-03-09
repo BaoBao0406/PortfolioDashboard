@@ -290,8 +290,6 @@ fig3.update_layout(title='Top 10 Agency information', autosize=False, width=1800
 
 # Plot 4
 
-# TODO: Horizontal Percentage Bar Charts 
-# https://plotly.com/python/horizontal-bar-charts/
 
 top_agency_industry = agency_BK_tmp[agency_BK_tmp['Agency Type'] == 'Agency']
 top_agency_list = top_agency.sort_values(by=top_agency.columns[2], ascending=False).head(5)['Agency Id'].to_list()
@@ -300,27 +298,33 @@ top_agency_industry = top_agency_industry.groupby(['Agency Id', 'Agency', 'End U
 top_agency_industry = pd.DataFrame(top_agency_industry).reset_index()
 
 
-colors = ['rgba(38, 24, 74, 0.8)', 'rgba(71, 58, 131, 0.8)',
-          'rgba(122, 120, 168, 0.8)', 'rgba(164, 163, 204, 0.85)',
-          'rgba(190, 192, 213, 1)']
-
 cols = plotly.colors.DEFAULT_PLOTLY_COLORS
 
 
 
 fig4 = go.Figure()
 
+annotations = []
 
 # Top 10 account
 for acc in top_agency_list:
     tmp_top = (top_agency_industry[top_agency_industry['Agency Id'] == acc].sort_values('size', ascending=False).head(5))
-    tmp_top['percent'] = (tmp_top['size'] / tmp_top['size'].sum()).astype(float).map("{:.1%}".format)
+    tmp_top['percent'] = (tmp_top['size'] / tmp_top['size'].sum()).astype(float).map("{:.0%}".format)
     
     for index, (p, a, i) in enumerate(zip(tmp_top['percent'], tmp_top['Agency'], tmp_top['End User SIC'])):
-        fig4.add_trace(go.Bar(x=[p], y=[a], orientation='h', name=i,
+        fig4.add_trace(go.Bar(x=[p], y=[a], orientation='h', name=i, text=p, textposition='inside',
                               hovertemplate="Industry=%s<br>percent=%%{x}<br><extra></extra>" % i,
                               marker=dict(color=cols[index], line=dict(color='rgb(248, 248, 249)', width=1))
                               ))
+        
+        annotations.append(dict(xref='paper', yref='y',
+                            x=0.14, y=a,
+                            xanchor='right',
+                            text=str(a),
+                            font=dict(family='Arial', size=10,
+                                      color='rgb(67, 67, 67)'),
+                            showarrow=False, align='right'))
+
 
 fig4.update_layout(xaxis=dict(showgrid=False, showline=False, showticklabels=False, zeroline=False, domain=[0.15, 1]),
                    yaxis=dict(showgrid=False,showline=False,showticklabels=False,zeroline=False,),
@@ -330,28 +334,33 @@ fig4.update_layout(xaxis=dict(showgrid=False, showline=False, showticklabels=Fal
                    margin=dict(l=120, r=10, t=140, b=80),
                    showlegend=False)
 
-annotations = []
 
-
-
-fig4.update_layout(annotations=annotations)
-
- 
+fig4.update_layout(title="Top 5 Agency Booking Industry", annotations=annotations)
 
 
 # Plot 5
+# create label and bins for chart
+bins = []
+labels = []
+
+for i in range(37):
+    labels.append(str((i+1)*30) + ' days')
+    bins.append(i*30)
+bins.append(np.inf)
 
 created_vs_arrival = booking_BK_tmp[['BookedDate', 'ArrivalDate']]
 created_vs_arrival['ArrivalDate'] = pd.to_datetime(created_vs_arrival['ArrivalDate'])
 created_vs_arrival['BookedDate'] = pd.to_datetime(created_vs_arrival['BookedDate'])
+created_vs_arrival['month_diff'] = (created_vs_arrival['ArrivalDate'] - created_vs_arrival['BookedDate']).dt.days
+created_vs_arrival['month_bins'] = pd.cut(created_vs_arrival['month_diff'], bins, labels=labels)
 created_vs_arrival['Created Month'] = created_vs_arrival['BookedDate'].dt.month_name().str[:3]
-created_vs_arrival['Arrival Month'] = created_vs_arrival['ArrivalDate'].dt.month_name().str[:3]
-created_vs_arrival = created_vs_arrival.groupby(['Created Month', 'Arrival Month']).size().to_frame('size')
+#created_vs_arrival['Arrival Month'] = created_vs_arrival['ArrivalDate'].dt.month_name().str[:3]
+created_vs_arrival = created_vs_arrival.groupby(['Created Month', 'month_bins']).size().to_frame('size')
 created_vs_arrival = pd.DataFrame(created_vs_arrival).reset_index()
 
-fig5 = px.sunburst(created_vs_arrival, path=['Created Month', 'Arrival Month'], values='size')
+fig5 = px.sunburst(created_vs_arrival, path=['Created Month', 'month_bins'], values='size')
 
-fig5.update_layout(title='Relationship between Booking Created Month and Arrival Month', autosize=False, width=1800, height=800)
+fig5.update_layout(title='Relationship between Booking Created and Arrival Month', autosize=False, width=1800, height=800)
 
 
 
@@ -414,5 +423,4 @@ def figures_to_html(figs, filename):
 
 figures_to_html([fig1, fig2, fig3, fig4, fig5, fig6, fig7], filename='portfolio_dashboard.html')
 
-figures_to_html([fig4], filename='testing_dashboard.html')
 ##################################################################################################
